@@ -1,19 +1,5 @@
 # LossyAD
 
-Combining **[TSB_AD](https://github.com/TheDatumOrg/TSB-AD)** with **[TerseTS](https://github.com/cmcuza/TerseTS)**
-
-You can download the univariate datasets here,
-* TSB-AD-U: https://www.thedatum.org/datasets/TSB-AD-U.zip
-After downloading put the TSB-AD-U directory in the Datasets folder
-
-Usage:
-pip install -r requirements.txt
-To run use python -m TSB_AD.main
-
-Between each usage if you want to re run experiments delete the eval directory
-
-# LossyAD
-
 A framework that combines [**TSB_AD**](https://github.com/TheDatumOrg/TSB-AD) with [**TerseTS**](https://github.com/cmcuza/TerseTS) to evaluate anomaly detection on compressed time series data.
 
 ## 🔗 Datasets
