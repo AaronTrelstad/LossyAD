@@ -48,7 +48,7 @@ class Method(Enum):
 
 '''
 TODO:
-1. Have each detector also go through each compression ratio
+1. Have each detector also go through each compression ratio, load the compression mapping and use related error bound.
 '''
 def run_AD(detector_name, file_list, args):
     target_dir = os.path.join(args.score_dir, detector_name)
@@ -78,7 +78,6 @@ def run_AD(detector_name, file_list, args):
     if write_header:
         pd.DataFrame(columns=columns).to_csv(out_path, index=False)
 
-    # Main file loop
     for filename in file_list:
         print(f'[{detector_name}] Processing {filename}')
         file_path = os.path.join(args.dataset_dir, filename)
@@ -167,7 +166,7 @@ def generate_error_bound_mapping(args, cr_targets, error_bounds, output_dir="cr_
                     the output array contains 24 bytes for the compressed representation of 3 elements, plus 1 byte for storing the compression model. 
                     In turn the input contains, 40 bytes"
 
-                    For most datasets the compressed data set is still larger thna 
+                    For most datasets the compressed data set is still larger than the original
                     '''
 
                     # I think the sizes here are not being calculated correctly
@@ -272,7 +271,6 @@ if __name__ == '__main__':
         file_list = pd.read_csv(args.file_list)['file_name'].values
     except Exception as e:
         logger.error(f"Failed to read file list: {e}")
-        return
 
     def run_detector_wrapper(detector_name):
         print(f"[{detector_name}] Detector started.")
