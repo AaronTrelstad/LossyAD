@@ -15,15 +15,15 @@ from sklearn.preprocessing import MinMaxScaler
 from concurrent.futures import ThreadPoolExecutor
 from scipy.interpolate import interp1d
 
-from .evaluation.metrics import get_metrics
-from .utils.slidingWindows import find_length_rank
-from .model_wrapper import (
+from TSB_AD.evaluation.metrics import get_metrics
+from TSB_AD.utils.slidingWindows import find_length_rank
+from TSB_AD.model_wrapper import (
     run_Semisupervise_AD,
     run_Unsupervise_AD,
     Semisupervise_AD_Pool,
     Unsupervise_AD_Pool
 )
-from .HP_list import Optimal_Uni_algo_HP_dict
+from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict
 
 seed = 2024
 torch.manual_seed(seed)
@@ -37,7 +37,8 @@ print("CUDA Available: ", torch.cuda.is_available())
 print("cuDNN Version: ", torch.backends.cudnn.version())
 
 '''
-Need to add the rest of the TerseTS compression methods
+TODO: 
+1. Add the rest of the TerseTS compression methods
 '''
 class Method(Enum):
     PMC_M = Method.PoorMansCompressionMean
@@ -45,13 +46,16 @@ class Method(Enum):
     SWING = Method.SwingFilter
     #SLIDE = Method.SlideFilter
 
-def run_detector(detector_name, args):
+'''
+TODO:
+1. Have each detector also go through each compression ratio
+'''
+def run_AD(detector_name, file_list, args):
     target_dir = os.path.join(args.score_dir, detector_name)
     os.makedirs(target_dir, exist_ok=True)
 
     logger = logging.getLogger(detector_name)
     logger.setLevel(logging.INFO)
-
     if not logger.handlers:
         log_file = os.path.join(target_dir, f'{detector_name}.log')
         fh = logging.FileHandler(log_file)
@@ -59,25 +63,23 @@ def run_detector(detector_name, args):
         fh.setFormatter(formatter)
         logger.addHandler(fh)
 
-    try:
-        file_list = pd.read_csv(args.file_list)['file_name'].values
-    except Exception as e:
-        logger.error(f"Failed to read file list: {e}")
-        return
-
     Optimal_Det_HP = Optimal_Uni_algo_HP_dict[detector_name]
     print(f'[{detector_name}] Optimal HP: {Optimal_Det_HP}')
 
+    columns = [
+        'file', 'Time',
+        'AUC-PR', 'AUC-ROC', 'VUS-PR', 'VUS-ROC',
+        'Standard-F1', 'PA-F1', 'Event-based-F1', 'R-based-F1', 'Affiliation-F'
+    ]
     out_path = os.path.join(args.save_dir, f'{detector_name}.csv')
     os.makedirs(args.save_dir, exist_ok=True)
-    if not os.path.exists(out_path):
-        pd.DataFrame(columns=['file', 'Time'] + [f'Metric_{i}' for i in range(1, 10)]).to_csv(out_path, index=False)
 
+    write_header = not os.path.exists(out_path)
+    if write_header:
+        pd.DataFrame(columns=columns).to_csv(out_path, index=False)
+
+    # Main file loop
     for filename in file_list:
-        score_file = os.path.join(target_dir, filename.split('.')[0] + '.npy')
-        if os.path.exists(score_file):
-            continue
-
         print(f'[{detector_name}] Processing {filename}')
         file_path = os.path.join(args.dataset_dir, filename)
 
@@ -89,7 +91,6 @@ def run_detector(detector_name, args):
 
         data = df.iloc[:, :-1].values.astype(float)
         label = df['Label'].astype(int).to_numpy()
-
         slidingWindow = find_length_rank(data[:, 0].reshape(-1, 1), rank=1)
         train_index = int(filename.split('.')[0].split('_')[-3])
         data_train = data[:train_index, :]
@@ -111,14 +112,13 @@ def run_detector(detector_name, args):
             try:
                 eval_result = get_metrics(output, label, slidingWindow=slidingWindow)
                 row = [filename, duration] + list(eval_result.values())
-                columns = ['file', 'Time'] + list(eval_result.keys())
             except Exception as e:
                 logger.error(f"Evaluation error on {filename}: {e}")
                 row = [filename, duration] + [0]*9
-                columns = ['file', 'Time'] + [f'Metric_{i}' for i in range(1, 10)]
 
             df_row = pd.DataFrame([row], columns=columns)
             df_row.to_csv(out_path, mode='a', header=False, index=False)
+            logger.info(f'Success at {filename} using {detector_name} | Time cost: {duration:.3f}s at length {len(label)}')
 
 '''
 Normalize all of the values in the dataset between [0, 1]
@@ -243,8 +243,6 @@ if __name__ == '__main__':
     compression_ratios = [3, 5, 7, 10, 13, 15, 17, 20, 25, 30, 40, 50]
     error_bounds = np.linspace(0, 0.8, 100)
 
-    # Need to list all methods in TerseTS
-
     '''
     Create JSON file that stores the map for each compression method, after interpolation:
     {
@@ -270,9 +268,15 @@ if __name__ == '__main__':
 
     detectors = list(Optimal_Uni_algo_HP_dict.keys())
 
+    try:
+        file_list = pd.read_csv(args.file_list)['file_name'].values
+    except Exception as e:
+        logger.error(f"Failed to read file list: {e}")
+        return
+
     def run_detector_wrapper(detector_name):
         print(f"[{detector_name}] Detector started.")
-        run_detector(detector_name, args)
+        run_AD(detector_name, file_list, args)
         print(f"[{detector_name}] Detector finished.")
 
     with ThreadPoolExecutor(max_workers=args.threads) as executor:

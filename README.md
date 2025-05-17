@@ -13,10 +13,16 @@ You can download the univariate time series anomaly datasets from the [TSB-AD-U]
 
 ## 📦 Installation
 
-To install the required Python dependencies:
+To install TSB_AD:
 
 ```bash
-pip install -r requirements.txt
+pip install TSB-AD
+```
+
+To install TerseTS:
+
+```bash
+pip install tersets
 ```
 
 ## Usage
@@ -24,7 +30,7 @@ pip install -r requirements.txt
 To run use:
 
 ```bash
-python -m TSB_AD.main
+python main.py
 ```
 
 Note: Before re-running experiments, delete the eval/ directory.
