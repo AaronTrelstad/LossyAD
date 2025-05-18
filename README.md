@@ -33,6 +33,3 @@ To run use:
 python main.py
 ```
 
-Note: Before re-running experiments, delete the eval/ directory.
-
-
