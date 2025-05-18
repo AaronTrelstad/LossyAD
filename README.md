@@ -9,7 +9,7 @@ You can download the univariate time series anomaly datasets from the [TSB-AD-U]
 **Instructions:**
 1. Download the ZIP file from the link above.
 2. Extract the contents.
-3. Place the `TSB-AD-U` directory inside the `Datasets/` folder.
+3. Place the `TSB-AD-U` directory inside the `Datasets/` folder. (Should look like `Datasets/TSB-AD-U/...`)
 
 ## 📦 Installation
 
@@ -32,7 +32,4 @@ To run use:
 ```bash
 python main.py
 ```
-
-Note: Before re-running experiments, delete the eval/ directory.
-
 
