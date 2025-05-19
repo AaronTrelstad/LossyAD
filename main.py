@@ -152,17 +152,18 @@ def create_bound_map(method, args):
     return {item["dataset"]: item["map"] for item in method_data_list}
 
 
-def experiment(method, args):
-    bound_map_path = os.path.join(args.cr_map_dir, method.name, ".json")
-    if not os.path.exists(bound_map_path):
-        bound_map = create_bound_map(method, args)  
-    else:
-        with open(bound_map_path, "r") as f:
-            bound_map = json.load(f)
+def experiment(detector, args):
+    Optimal_Det_HP = Optimal_Uni_algo_HP_dict[detector]
 
     # Is there a way to further parallize this?
-    for detector in args.ad_methods:
-        Optimal_Det_HP = Optimal_Uni_algo_HP_dict[detector]
+    for method in Methods:
+        bound_map_path = os.path.join(args.cr_map_dir, method.name, ".json")
+        if not os.path.exists(bound_map_path):
+            bound_map = create_bound_map(method, args)  
+        else:
+            with open(bound_map_path, "r") as f:
+                bound_map = json.load(f)
+                
         for cr in args.compression_ratios:
             results_rows = []
             columns = None
@@ -244,9 +245,9 @@ if __name__ == '__main__':
     with ThreadPoolExecutor(max_workers=6) as executor:
         futures = [executor.submit(
             experiment_worker,
-            method
+            detector
         )
-        for method in Methods]
+        for detector in args.ad_methods]
 
         for future in futures:
             future.result()
