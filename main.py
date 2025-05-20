@@ -55,7 +55,7 @@ class Args:
         self.cr_map_dir = 'cr_bound_maps/'
         self.dataset_dir = 'Datasets/TSB-AD-U'
         self.file_list = 'Datasets/File_List/TSB-AD-U-Test.csv'
-        self.compression_ratios = [0, 3, 5, 7, 10, 15, 20, 30, 40, 50]
+        self.compression_ratios = [1, 3, 5, 7, 10, 15, 20, 30, 40, 50]
         self.error_bounds = np.linspace(0, 0.8, 100)
         self.ad_methods = list(Optimal_Uni_algo_HP_dict.keys())
 
@@ -109,13 +109,12 @@ def create_bound_map(method, args):
 
                 For several of the datasets the compressed data set is still larger than the original
                 '''
-                compressed_values = compress(data, method.value, bound)
+                compressed_values = compress(norm_data, method.value, bound)
                 compressed_size = (len(compressed_values) - 1) / 8 
-                cr = data.size / compressed_size
+                cr = norm_data.size / compressed_size
                 crs.append(cr)
             except Exception as e:
                 print(f"Compression failed for {filename}, method={method.name}, bound={bound}: {e}")
-                crs.append(np.nan)
 
         crs = np.array(crs)
 
@@ -155,7 +154,6 @@ def create_bound_map(method, args):
 def experiment(detector, args):
     Optimal_Det_HP = Optimal_Uni_algo_HP_dict[detector]
 
-    # Is there a way to further parallize this?
     for method in Methods:
         bound_map_path = os.path.join(args.cr_map_dir, method.name, ".json")
         if not os.path.exists(bound_map_path):
@@ -163,7 +161,7 @@ def experiment(detector, args):
         else:
             with open(bound_map_path, "r") as f:
                 bound_map = json.load(f)
-                
+
         for cr in args.compression_ratios:
             results_rows = []
             columns = None
@@ -179,11 +177,9 @@ def experiment(detector, args):
                     continue
 
                 data = df.iloc[:, :-1].values.astype(float)
-                error_bound = bound_map[dataset.split(".")[0]][str(cr)] # There is an error here because sometimes the error bounds are negative
-                # Temporary fix
-                if error_bound < 0:
-                    error_bound = 0
-                compressed_values = compress(data, method.value, error_bound)
+                norm_data = normalize_data(data) 
+                error_bound = bound_map[dataset.split(".")[0]][str(cr)]
+                compressed_values = compress(norm_data, method.value, error_bound)
                 data = decompress(compressed_values)
 
                 data = np.array(data)
@@ -241,6 +237,8 @@ if __name__ == '__main__':
     I believe the Python GIL, prevents true parallelism on CPU-bound tasks because it only allows one thread to execute Python
     bytecode at a time, thus we need to move this to use multiple processes, this way each process has its own interpreter and GIL.
     Alternatively, we can distribute the workload across multiple machines.
+
+    Run groups of detectors on different machines then, on each machine we can split the methods, onto seperate processes.
     '''
     with ThreadPoolExecutor(max_workers=6) as executor:
         futures = [executor.submit(
