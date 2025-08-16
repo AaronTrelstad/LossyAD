@@ -22,7 +22,6 @@ class MethodType(Enum):
     PMC_M = Method.PoorMansCompressionMean
     PMC_MR = Method.PoorMansCompressionMidrange
     SWING = Method.SwingFilter
-    #SLIDE = Method.SlideFilter
 
 class ExperimentConfig:
     def __init__(self):
@@ -32,17 +31,18 @@ class ExperimentConfig:
         self.cr_map_dir = 'cr_bound_maps/'
         self.dataset_dir = 'Datasets/TSB-AD-U'
 
-        self.dataset_list = 'Datasets/File_List/TSB-AD-U-Test.csv'
+        self.dataset_list = 'Datasets/File_List/TSB-AD-U-Check.csv'
 
         self.compression_ratios = [1, 3, 5, 7, 10, 15, 20, 30, 40, 50]
         self.error_bounds = np.linspace(0, 0.8, 100)
 
-        self.ad_methods = list(Optimal_Uni_algo_HP_dict.keys())
+        # for all AD methods use: list(Optimal_Uni_algo_HP_dict.keys())
+        self.ad_methods = ['Sub_PCA', 'KShapeAD', 'POLY', 'Sub_KNN', 'SR', 'CNN', 'LSTMAD', 'USAD', 'MOMENT_FT', 'MOMENT_ZS']
 
-        self.chart = True
+        self.chart = False
 
 class AnalysisConfig:
     def __init__(self):
         self.results_dir = 'results/'
-        self.ad_methods = list(Optimal_Uni_algo_HP_dict.keys())
+        self.ad_methods = ['Sub_PCA', 'KShapeAD', 'POLY', 'Sub_KNN', 'SR', 'CNN', 'LSTMAD', 'USAD', 'MOMENT_FT', 'MOMENT_ZS']
 

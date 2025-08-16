@@ -5,6 +5,4 @@ if __name__ == '__main__':
     config = ExperimentConfig()
     set_seed(config.seed)
 
-    print("Initalized")
-
     run_experiment(config)

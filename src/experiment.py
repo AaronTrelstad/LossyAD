@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 from tersets import compress, decompress, Method
 import json
+import zstandard as zstd
+import io 
 
 from concurrent.futures import ThreadPoolExecutor
 from scipy.interpolate import interp1d
@@ -23,11 +25,11 @@ from .configs import MethodType
 
 '''
 Creates a mapping between compression ratio and error bounds, for every compression
-method and every dataset/
+method and every dataset
 '''
 def create_bound_map(method, args):
     try:
-        file_list = pd.read_csv(args.file_list)['file_name'].values
+        file_list = pd.read_csv(args.dataset_list)['file_name'].values
     except Exception as e:
         print(f"Failed to read file list: {e}")
         return
@@ -42,7 +44,7 @@ def create_bound_map(method, args):
         try:
             df = pd.read_csv(file_path).dropna()
             data = df.iloc[:, :-1].values.astype(float)
-            norm_data = normalize_data(data) 
+
         except Exception as e:
             print(f"Failed to load or normalize {filename}: {e}")
             continue
@@ -50,20 +52,31 @@ def create_bound_map(method, args):
         crs = []
         for bound in args.error_bounds:
             try:
+                def zstd_compress(data_bytes, level = 3):
+                    cctx = zstd.ZstdCompressor(level=level)
+                    compressed = cctx.compress(data_bytes)
+                    return len(compressed)
+
+                norm_data = normalize_data(data) 
+                norm_data = norm_data.astype(np.float64)
+
                 compressed_values = compress(norm_data, method.value, bound)
-                compressed_size = (len(compressed_values) - 1) / 8 
-                cr = norm_data.size / compressed_size
+                compressed_values = np.array(compressed_values, dtype=np.uint8)
+                compressed_bytes = compressed_values.tobytes()
+
+                compressed_size = zstd_compress(compressed_bytes)
+
+                cr = norm_data.nbytes / compressed_size
                 crs.append(cr)
+
             except Exception as e:
                 print(f"Compression failed for {filename}, method={method.name}, bound={bound}: {e}")
-
-        crs.append(1.0)
-        bounds_with_zero = list(args.error_bounds) + [0.0]
-
+ 
+        bounds_with_zero = list(args.error_bounds)
         crs_array, bounds_array = zip(*sorted(zip(crs, bounds_with_zero)))
 
         try:
-            interp_func = interp1d(crs_array, bounds_array, bounds_error=False, fill_value="extrapolate")
+            interp_func = interp1d(crs_array, bounds_array, kind='linear', bounds_error=False, fill_value="extrapolate")
         except Exception as e:
             print(f"Interpolation failed for {filename}, method={method.name}: {e}")
             continue
@@ -125,7 +138,6 @@ def compressed_experiment(detector, args, file_list):
                 error_bound = bound_map[dataset.split(".")[0]][str(cr)]
 
                 compressed_values = compress(norm_data, method.value, error_bound)
-
                 decompressed_data = decompress(compressed_values)
 
                 decompressed_data = np.array(decompressed_data)
@@ -166,7 +178,7 @@ def compressed_experiment(detector, args, file_list):
                 results_rows.append(row)
 
             if results_rows:
-                out_dir = os.path.join("results", method.name, detector)
+                out_dir = os.path.join(args.results_dir, method.name, detector)
                 os.makedirs(out_dir, exist_ok=True)
                 out_path = os.path.join(out_dir, f"{cr}.csv")
 
@@ -226,7 +238,7 @@ def uncompressed_experiment(args, file_list):
             results_rows.append(row)
 
         if results_rows:
-            out_dir = os.path.join("results", "original")
+            out_dir = os.path.join(args.results_dir, "original")
             os.makedirs(out_dir, exist_ok=True)
             out_path = os.path.join(out_dir, f"{detector}.csv")
 
@@ -239,12 +251,25 @@ def run_experiment(args):
     except Exception as e:
         print(e)
 
-    #uncompressed_experiment(args, file_list)
+    uncompressed_experiment(args, file_list)
+
+    def bound_worker(compressor):
+        create_bound_map(compressor, args)
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [executor.submit(
+            bound_worker,
+            compressor
+        )
+        for compressor in MethodType]
+
+        for future in futures:
+            future.result()
 
     def experiment_worker(method):
         compressed_experiment(method, args, file_list)
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:
         futures = [executor.submit(
             experiment_worker,
             detector
