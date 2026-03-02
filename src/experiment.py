@@ -2,7 +2,6 @@ import os
 import time
 import pandas as pd
 import numpy as np
-from tersets import compress, decompress, Method
 import json
 import zstandard as zstd
 import io 
@@ -26,6 +25,8 @@ from .configs import MethodType
 '''
 Creates a mapping between compression ratio and error bounds, for every compression
 method and every dataset
+
+Occassionally we are getting negative error bounds
 '''
 def create_bound_map(method, args):
     try:
@@ -50,6 +51,7 @@ def create_bound_map(method, args):
             continue
 
         crs = []
+        crs.append(1)
         for bound in args.error_bounds:
             try:
                 def zstd_compress(data_bytes, level = 3):
@@ -60,19 +62,29 @@ def create_bound_map(method, args):
                 norm_data = normalize_data(data) 
                 norm_data = norm_data.astype(np.float64)
 
-                compressed_values = compress(norm_data, method.value, bound)
-                compressed_values = np.array(compressed_values, dtype=np.uint8)
-                compressed_bytes = compressed_values.tobytes()
+                compressor = method.value(error_bound=bound)
+                compressed_values = compressor.compress(norm_data)
+                
+                if not isinstance(compressed_values, (bytes, bytearray)):
+                    compressed_bytes = np.array(compressed_values, dtype=np.float64).tobytes()
+                else:
+                    compressed_bytes = compressed_values
+
+                #print("Compressed Size: " + str(len(compressed_bytes)) + " Original: " + str(norm_data.nbytes) + " error: " + str(bound) + " cr: " + str(norm_data.nbytes / len(compressed_bytes)))
 
                 compressed_size = zstd_compress(compressed_bytes)
 
                 cr = norm_data.nbytes / compressed_size
+
+                #print("Compressed Size: " + str(compressed_size) + " Original: " + str(norm_data.nbytes) + " error: " + str(bound) + " cr: " + str(cr) + "\n")
+
                 crs.append(cr)
 
             except Exception as e:
                 print(f"Compression failed for {filename}, method={method.name}, bound={bound}: {e}")
  
-        bounds_with_zero = list(args.error_bounds)
+        bounds_with_zero = [0]
+        bounds_with_zero.extend(list(args.error_bounds))
         crs_array, bounds_array = zip(*sorted(zip(crs, bounds_with_zero)))
 
         try:
@@ -104,13 +116,14 @@ def create_bound_map(method, args):
     return {item["dataset"]: item["map"] for item in method_data_list}
 
 
+# Flip this, Method -> compression ratio -> detector
 def compressed_experiment(detector, args, file_list):
     Optimal_Det_HP = Optimal_Uni_algo_HP_dict[detector]
 
     for method in MethodType:
         bound_map_path = os.path.join(args.cr_map_dir, f"{method.name}.json")
         if not os.path.exists(bound_map_path):
-            bound_map = create_bound_map(method, args)  
+            bound_map = create_bound_map(method.value, args)  
         else:
             with open(bound_map_path, "r") as f:
                 raw = json.load(f)
@@ -137,9 +150,10 @@ def compressed_experiment(detector, args, file_list):
                 norm_data = normalize_data(data) 
                 error_bound = bound_map[dataset.split(".")[0]][str(cr)]
 
-                compressed_values = compress(norm_data, method.value, error_bound)
-                decompressed_data = decompress(compressed_values)
+                compressor = method.value(error_bound=error_bound)
+                compressed_values = compressor.compress(norm_data)
 
+                decompressed_data = compressor.decompress(compressed_values, norm_data.shape, norm_data.dtype)
                 decompressed_data = np.array(decompressed_data)
                 if decompressed_data.ndim == 1:
                     decompressed_data = decompressed_data.reshape(-1, 1)
@@ -205,7 +219,7 @@ def uncompressed_experiment(args, file_list):
             data = df.iloc[:, :-1].values.astype(float)
             norm_data = normalize_data(data) 
 
-            data = np.array(data)
+            data = np.array(norm_data)
             if data.ndim == 1:
                 data = data.reshape(-1, 1)
             labels = df['Label'].astype(int).to_numpy()
@@ -251,7 +265,7 @@ def run_experiment(args):
     except Exception as e:
         print(e)
 
-    uncompressed_experiment(args, file_list)
+    #uncompressed_experiment(args, file_list)
 
     def bound_worker(compressor):
         create_bound_map(compressor, args)

@@ -1,4 +1,3 @@
-import time
 import random
 import numpy as np
 import torch
@@ -6,6 +5,7 @@ import torch
 from tersets import Method
 from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict
 from enum import Enum
+from .compression_methods import SZ3Compressor, PIPCompressor, DWTCompressor, PySerfCompressor, MixPieceCompressor, NoneCompressor
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -19,9 +19,12 @@ def set_seed(seed):
     print("cuDNN Version: ", torch.backends.cudnn.version())
 
 class MethodType(Enum):
-    PMC_M = Method.PoorMansCompressionMean
-    PMC_MR = Method.PoorMansCompressionMidrange
-    SWING = Method.SwingFilter
+    #NONE = NoneCompressor
+    SZ3 = SZ3Compressor
+    #PIP = PIPCompressor
+    #DWT = DWTCompressor # Need to add some sort of linear interpolation like the cr -> error bound mapping
+    #MP = MixPieceCompressor # Need to validate this
+    #SERF = PySerfCompressor # Need to figure out what the return value is
 
 class ExperimentConfig:
     def __init__(self):
@@ -31,13 +34,13 @@ class ExperimentConfig:
         self.cr_map_dir = 'cr_bound_maps/'
         self.dataset_dir = 'Datasets/TSB-AD-U'
 
-        self.dataset_list = 'Datasets/File_List/TSB-AD-U-Check.csv'
+        self.dataset_list = 'Datasets/File_List/TSB-AD-U-Test.csv'
 
         self.compression_ratios = [1, 3, 5, 7, 10, 15, 20, 30, 40, 50]
         self.error_bounds = np.linspace(0, 0.8, 100)
 
         # for all AD methods use: list(Optimal_Uni_algo_HP_dict.keys())
-        self.ad_methods = ['Sub_PCA', 'KShapeAD', 'POLY', 'Sub_KNN', 'SR', 'CNN', 'LSTMAD', 'USAD', 'MOMENT_FT', 'MOMENT_ZS']
+        self.ad_methods = ['Sub_PCA', 'KShapeAD', 'POLY', 'Sub_KNN', 'SR', 'CNN', 'LSTMAD', 'USAD'] # 'MOMENT_FT', 'MOMENT_ZS'
 
         self.chart = False
 
