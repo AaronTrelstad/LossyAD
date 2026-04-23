@@ -21,9 +21,9 @@ class MethodType(Enum):
     #NONE = NoneCompressor
     # SZ3 = SZ3Compressor
     #PIP = PIPCompressor
-    DWT = DWTCompressor
+    # DWT = DWTCompressor
+    SERF = PySerfCompressor
     #MP = MixPieceCompressor # Need to validate this
-    #SERF = PySerfCompressor # Need to figure out what the return value is
 
 class ExperimentConfig:
     def __init__(self):

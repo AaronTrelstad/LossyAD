@@ -1,10 +1,15 @@
 import sys
 import os
+import struct
 
 pysz_path = os.path.join(os.path.dirname(__file__), "..", "external", "SZ3", "tools", "pysz")
 sys.path.append(pysz_path)
 sys.path.append('/Users/aarontrelstad/cameo')
-sys.path.append("/Users/aarontrelstad/serf/build/pywrapper")
+serf_pywrapper_path = os.environ.get(
+    "SERF_PYWRAPPER_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "external", "Serf", "build", "pywrapper"),
+)
+sys.path.append(serf_pywrapper_path)
 
 import numpy as np
 from scipy.fftpack import dct, idct
@@ -110,26 +115,95 @@ class PIPCompressor:
         return data_dec
 
 class PySerfCompressor:
-    def __init__(self, error_bound=1e-3):
-        from pyserf import PySerfXORCompressor, PySerfXORDecompressor
+    _FRAME_MAGIC = b"SRF1"
+    _FRAME_LEN_STRUCT = struct.Struct("<I")
 
-        self.error_bound = error_bound
+    def __init__(self, error_bound=1e-3):
+        from pyserf import ArrayOfBytes, PySerfXORCompressor, PySerfXORDecompressor
+
+        self.error_bound = float(error_bound)
         self.window_size = 1000
+        # SERF's upstream benchmarks flush small blocks and reuse codec state
+        # across those blocks. Sending an entire long series through one close()
+        # can overflow the native output buffer and corrupt the heap.
+        self.block_size = 50
         self.adjust = 0
 
-        self.compressor = PySerfXORCompressor(self.window_size, self.error_bound, self.adjust)
-        self.decompressor = PySerfXORDecompressor(self.adjust)
+        self._array_of_bytes_cls = ArrayOfBytes
+        self._compressor_cls = PySerfXORCompressor
+        self._decompressor_cls = PySerfXORDecompressor
+
+    def _pack_to_bytes(self, pack):
+        if isinstance(pack, (bytes, bytearray, memoryview)):
+            return bytes(pack)
+
+        if hasattr(pack, "__getstate__"):
+            state = pack.__getstate__()
+            if isinstance(state, tuple) and state:
+                return bytes(state[0])
+
+        return bytes(pack)
 
     def compress(self, data):
-        for val in data:
-            self.compressor.add_value(val)
-        
-        self.compressor.close()
-        pack = self.compressor.get()
-        return pack
+        values = np.asarray(data, dtype=np.float64).reshape(-1)
+        compressor = self._compressor_cls(self.window_size, self.error_bound, self.adjust)
+        framed_bytes = bytearray(self._FRAME_MAGIC)
+
+        for start in range(0, values.size, self.block_size):
+            block = values[start:start + self.block_size]
+            for val in block:
+                compressor.add_value(float(val))
+
+            compressor.close()
+            pack = compressor.get()
+            pack_bytes = self._pack_to_bytes(pack)
+            framed_bytes.extend(self._FRAME_LEN_STRUCT.pack(len(pack_bytes)))
+            framed_bytes.extend(pack_bytes)
+
+        return bytes(framed_bytes)
     
     def decompress(self, data_cmp, original_shape=None, original_dtype=None):
-        data_dec = self.decompressor.decompress(data_cmp)
+        if isinstance(data_cmp, (bytes, bytearray, memoryview)):
+            payload = bytes(data_cmp)
+            decompressor = self._decompressor_cls(self.adjust)
+
+            if payload.startswith(self._FRAME_MAGIC):
+                offset = len(self._FRAME_MAGIC)
+                values = []
+
+                while offset < len(payload):
+                    if offset + self._FRAME_LEN_STRUCT.size > len(payload):
+                        raise ValueError("Corrupt SERF payload: truncated block header")
+
+                    (block_len,) = self._FRAME_LEN_STRUCT.unpack_from(payload, offset)
+                    offset += self._FRAME_LEN_STRUCT.size
+                    block_end = offset + block_len
+
+                    if block_end > len(payload):
+                        raise ValueError("Corrupt SERF payload: truncated block data")
+
+                    pack = self._array_of_bytes_cls(list(payload[offset:block_end]))
+                    values.extend(decompressor.decompress(pack))
+                    offset = block_end
+
+                data_dec = np.asarray(values, dtype=np.float64)
+            else:
+                pack = self._array_of_bytes_cls(list(payload))
+                data_dec = np.asarray(decompressor.decompress(pack), dtype=np.float64)
+        else:
+            pack = data_cmp
+            decompressor = self._decompressor_cls(self.adjust)
+            data_dec = np.asarray(decompressor.decompress(pack), dtype=np.float64)
+
+        if original_shape is not None:
+            target_size = int(np.prod(original_shape))
+            if data_dec.size > target_size:
+                data_dec = data_dec[:target_size]
+            data_dec = data_dec.reshape(original_shape)
+
+        if original_dtype is not None:
+            data_dec = data_dec.astype(original_dtype, copy=False)
+
         return data_dec
     
 class NoneCompressor:

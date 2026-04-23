@@ -1,3 +1,6 @@
 [submodule "external/SZ3"]
 	path = external/SZ3
 	url = https://github.com/szcompressor/SZ3.git
+[submodule "external/Serf"]
+	path = external/Serf
+	url = https://github.com/Spatio-Temporal-Lab/Serf.git
