@@ -2,7 +2,6 @@ import random
 import numpy as np
 import torch
 
-from tersets import Method
 from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict
 from enum import Enum
 from .compression_methods import SZ3Compressor, PIPCompressor, DWTCompressor, PySerfCompressor, MixPieceCompressor, NoneCompressor
@@ -20,9 +19,9 @@ def set_seed(seed):
 
 class MethodType(Enum):
     #NONE = NoneCompressor
-    SZ3 = SZ3Compressor
+    # SZ3 = SZ3Compressor
     #PIP = PIPCompressor
-    #DWT = DWTCompressor # Need to add some sort of linear interpolation like the cr -> error bound mapping
+    DWT = DWTCompressor
     #MP = MixPieceCompressor # Need to validate this
     #SERF = PySerfCompressor # Need to figure out what the return value is
 

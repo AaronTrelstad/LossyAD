@@ -12,3 +12,7 @@ TSB_AD/models/Series2Graph.py
 /results
 /TerseTS
 /charts
+file_summary.md
+/cr_bound_maps
+run.sbatch
+/logs
