@@ -183,8 +183,15 @@ fi
 if [ "$BUILD_SZ3" = true ]; then
   echo ""
   echo "[setup] === Building SZ3 ==="
+
+  # Load cmake via module if not already in PATH
+  if ! command -v cmake &>/dev/null; then
+    module load cmake 2>/dev/null && echo "[setup] Loaded cmake via module" || \
+      { echo "[setup] WARNING: cmake not found — skipping SZ3. Run: module load cmake"; BUILD_SZ3=false; }
+  fi
+
   SZ3_DIR="external/SZ3"
-  if [ -d "$SZ3_DIR" ]; then
+  if [ "$BUILD_SZ3" = true ] && [ -d "$SZ3_DIR" ]; then
     mkdir -p "$SZ3_DIR/build" "$SZ3_DIR/install"
     cmake -S "$SZ3_DIR" -B "$SZ3_DIR/build" \
           -DCMAKE_INSTALL_PREFIX="$(pwd)/$SZ3_DIR/install" \
@@ -193,7 +200,7 @@ if [ "$BUILD_SZ3" = true ]; then
     cmake --build "$SZ3_DIR/build" --parallel "$(nproc)" 2>&1 | tail -5
     cmake --install "$SZ3_DIR/build" 2>&1 | tail -5
     echo "[setup] SZ3 built → $SZ3_DIR/install/lib/"
-  else
+  elif [ "$BUILD_SZ3" = true ]; then
     echo "[setup] external/SZ3 not found — skipping."
     echo "        Clone with: git clone https://github.com/szcompressor/SZ3 external/SZ3"
   fi
