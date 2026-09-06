@@ -185,6 +185,88 @@ AVAILABLE_MULTI_AD_METHODS: list[str] = [
 # Backwards-compatible alias (used by experiment.py before multivariate flag)
 AVAILABLE_AD_METHODS = AVAILABLE_UNI_AD_METHODS
 
+# ---------------------------------------------------------------------------
+# Reduced method sets — one best-performing method per algorithmic family.
+# Selected from the TSB-AD public leaderboard (VLDBj 2025 version).
+# Full lists above are kept for completeness; use these for the main experiment
+# to keep wall time feasible.
+# ---------------------------------------------------------------------------
+
+# Univariate: 13 methods covering 13 distinct families
+# Family               | Method          | Leaderboard (TSB-AD-U)
+# -------------------- | --------------- | ----------------------
+# Shape / pattern      | KShapeAD        | 0.40  (rank 1)
+# Statistical          | POLY            | 0.39  (rank 4)
+# Foundation FT        | MOMENT_FT       | 0.39  (rank 5)
+# Foundation ZS        | MOMENT_ZS       | 0.38  (rank 6)
+# Clustering           | KMeansAD_U      | 0.37
+# Deep reconstruction  | USAD            | 0.36
+# Deep prediction      | LSTMAD          | 0.33
+# Spectral residual    | SR              | 0.32
+# Ensemble / tree      | IForest         | 0.30
+# Forecasting FM       | TimesFM         | 0.30
+# Density              | LOF             | 0.25
+# Subspace             | Sub_IForest     | 0.22
+# Transformer          | AnomalyTransformer | 0.12
+_REDUCED_UNI_AD_METHODS = [
+    "KShapeAD",
+    "POLY",
+    "MOMENT_FT",
+    "MOMENT_ZS",
+    "KMeansAD_U",
+    "USAD",
+    "LSTMAD",
+    "SR",
+    "IForest",
+    "TimesFM",
+    "LOF",
+    "Sub_IForest",
+    "AnomalyTransformer",
+]
+
+# Multivariate: 9 methods covering 9 distinct families
+# Family               | Method           | Leaderboard (TSB-AD-M)
+# -------------------- | ---------------- | ----------------------
+# Subspace / linear    | PCA              | 0.31
+# Deep reconstruction  | CNN              | 0.31
+# Deep prediction      | OmniAnomaly      | 0.31
+# Shape / clustering   | KMeansAD         | 0.29
+# Statistical          | CBLOF            | 0.27
+# Density              | MCD              | 0.27
+# Ensemble / tree      | EIF              | 0.21
+# Foundation           | OFA              | 0.21
+# Transformer          | AnomalyTransformer | 0.12
+_REDUCED_MULTI_AD_METHODS = [
+    "PCA",
+    "CNN",
+    "OmniAnomaly",
+    "KMeansAD",
+    "CBLOF",
+    "MCD",
+    "EIF",
+    "OFA",
+    "AnomalyTransformer",
+]
+
+# Compressors: one best-in-class per compression paradigm
+# Family                      | Compressor | Rationale
+# --------------------------- | ---------- | ---------
+# Baseline (no compression)   | NONE       | Reference point
+# Error-bounded (prediction)  | SZ3        | State-of-the-art scientific lossy compression
+# Error-bounded (transform)   | ZFP        | Widely used in HPC; well-studied
+# Wavelet / transform         | DWT        | Classic transform coding baseline
+# Scalar quantization         | QUANT      | Simple uniform quantization
+# Point selection             | PIP        | Perceptually important points
+# Encoding                    | GORILLA    | Streaming float compression (Facebook)
+REDUCED_COMPRESSOR_NAMES: list[str] = ["NONE", "SZ3", "ZFP", "DWT", "QUANT", "PIP", "GORILLA"]
+
+REDUCED_UNI_AD_METHODS: list[str] = [
+    m for m in _REDUCED_UNI_AD_METHODS if m in Optimal_Uni_algo_HP_dict
+]
+REDUCED_MULTI_AD_METHODS: list[str] = [
+    m for m in _REDUCED_MULTI_AD_METHODS if m in Optimal_Multi_algo_HP_dict
+]
+
 _missing_uni   = set(_DESIRED_UNI_AD_METHODS)   - set(AVAILABLE_UNI_AD_METHODS)
 _missing_multi = set(_DESIRED_MULTI_AD_METHODS) - set(AVAILABLE_MULTI_AD_METHODS)
 if _missing_uni:
@@ -238,14 +320,17 @@ class ExperimentConfig:
         # Range extended to 0.99 so DWT / QUANT can reach very high CRs.
         self.error_bounds = np.linspace(0, 0.99, 200)
 
-        # AD methods — pick the right list for uni vs multivariate
+        # AD methods — reduced set (one per family) by default.
+        # Pass full=True or override via CLI --detectors to use all methods.
         if multivariate:
-            self.ad_methods = list(AVAILABLE_MULTI_AD_METHODS)
+            self.ad_methods = list(REDUCED_MULTI_AD_METHODS)
         else:
-            self.ad_methods = list(AVAILABLE_UNI_AD_METHODS)
+            self.ad_methods = list(REDUCED_UNI_AD_METHODS)
 
-        # Compressors — all available by default; override via CLI.
-        self.compressors = list(MethodType)
+        # Compressors — reduced set (one per family) by default.
+        # Pass full=True or override via CLI --compressors to use all.
+        name_map = {m.name: m for m in MethodType}
+        self.compressors = [name_map[n] for n in REDUCED_COMPRESSOR_NAMES if n in name_map]
 
         # Worker count for the detector parallel loop.
         self.n_workers = int(os.environ.get("LOSSYAD_WORKERS", 1))
