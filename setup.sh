@@ -29,9 +29,26 @@ for arg in "$@"; do
   esac
 done
 
+# ---------------------------------------------------------------------------
+# Storage root detection
+# Prefer /work/classtmp/<user> (Nova HPC storage, accessible from compute nodes).
+# Falls back to home directory if not available.
+# ---------------------------------------------------------------------------
+if [ -d "/work/classtmp/$USER" ]; then
+  STORAGE_ROOT="/work/classtmp/$USER/lossyad"
+  echo "[setup] Storage: /work/classtmp/$USER/lossyad (HPC storage)"
+else
+  STORAGE_ROOT="$HOME/.lossyad_data"
+  echo "[setup] Storage: $HOME/.lossyad_data (home directory fallback)"
+  echo "        NOTE: /work/classtmp/$USER not found. Datasets and model weights"
+  echo "        will be stored in home. Watch your 10GB quota."
+fi
+mkdir -p "$STORAGE_ROOT/datasets" "$STORAGE_ROOT/hf_cache" "$STORAGE_ROOT/torch_cache"
+
 echo "=== LossyAD Setup ==="
-echo "    SZ3:             $BUILD_SZ3"
-echo "    SERF:            $BUILD_SERF"
+echo "    Storage root:      $STORAGE_ROOT"
+echo "    SZ3:               $BUILD_SZ3"
+echo "    SERF:              $BUILD_SERF"
 echo "    Download datasets: $DOWNLOAD_DATASETS"
 echo "    Download weights:  $DOWNLOAD_WEIGHTS"
 echo ""
@@ -42,10 +59,17 @@ echo ""
 echo "[setup] Installing pip dependencies..."
 pip install -r requirements.txt
 
-# TerseTS (MixPiece) — not on PyPI, install from git
+# TerseTS — requires Zig compiler; install ziglang first then build from source
 echo "[setup] Installing TerseTS (MixPiece)..."
-pip install git+https://github.com/cmcuza/TerseTS.git || \
-  echo "[setup] WARNING: TerseTS install failed — MixPiece compressor will be unavailable."
+pip install ziglang && \
+  git clone --depth=1 https://github.com/cmcuza/TerseTS.git /tmp/TerseTS_build 2>/dev/null || true
+if [ -d "/tmp/TerseTS_build/bindings/python" ]; then
+  pip install /tmp/TerseTS_build/bindings/python/ || \
+    echo "[setup] WARNING: TerseTS build failed — MP/SWING/SIMPIE/SLIDE/VW compressors will be unavailable."
+  rm -rf /tmp/TerseTS_build
+else
+  echo "[setup] WARNING: TerseTS clone failed — MP/SWING/SIMPIE/SLIDE/VW compressors will be unavailable."
+fi
 
 # ---------------------------------------------------------------------------
 # 2. TSB-AD datasets
@@ -53,36 +77,48 @@ pip install git+https://github.com/cmcuza/TerseTS.git || \
 if [ "$DOWNLOAD_DATASETS" = true ]; then
   echo ""
   echo "[setup] === Downloading TSB-AD datasets ==="
+  echo "        Target: $STORAGE_ROOT/datasets/"
 
-  mkdir -p Datasets/TSB-AD-U Datasets/TSB-AD-M
+  TSB_U_URL="https://www.thedatum.org/datasets/TSB-AD-U.zip"
+  TSB_M_URL="https://www.thedatum.org/datasets/TSB-AD-M.zip"
 
-  # TSB-AD univariate dataset
-  # Download from the TSB-AD GitHub releases page or the official mirror.
-  # Check https://github.com/thedatumorg/TSB-AD for the latest download link.
-  TSB_U_URL="https://thedatumorg.org/datasets/TSB-AD-U.zip"
-  TSB_M_URL="https://thedatumorg.org/datasets/TSB-AD-M.zip"
-
-  if [ -z "$(ls -A Datasets/TSB-AD-U 2>/dev/null)" ]; then
+  # --- Univariate ---
+  if [ -z "$(ls -A "$STORAGE_ROOT/datasets/TSB-AD-U" 2>/dev/null)" ]; then
     echo "[setup] Downloading TSB-AD-U (univariate)..."
     wget -q --show-progress -O /tmp/TSB-AD-U.zip "$TSB_U_URL" && \
-      unzip -q /tmp/TSB-AD-U.zip -d Datasets/ && \
+      unzip -q /tmp/TSB-AD-U.zip -d "$STORAGE_ROOT/datasets/" && \
       rm /tmp/TSB-AD-U.zip && \
-      echo "[setup] TSB-AD-U extracted to Datasets/TSB-AD-U/" || \
-      echo "[setup] WARNING: TSB-AD-U download failed. Download manually and extract to Datasets/TSB-AD-U/"
+      echo "[setup] TSB-AD-U extracted to $STORAGE_ROOT/datasets/TSB-AD-U/" || \
+      echo "[setup] WARNING: TSB-AD-U download failed."
   else
-    echo "[setup] Datasets/TSB-AD-U/ already populated — skipping download."
+    echo "[setup] TSB-AD-U already present — skipping download."
   fi
 
-  if [ -z "$(ls -A Datasets/TSB-AD-M 2>/dev/null)" ]; then
+  # --- Multivariate ---
+  if [ -z "$(ls -A "$STORAGE_ROOT/datasets/TSB-AD-M" 2>/dev/null)" ]; then
     echo "[setup] Downloading TSB-AD-M (multivariate)..."
     wget -q --show-progress -O /tmp/TSB-AD-M.zip "$TSB_M_URL" && \
-      unzip -q /tmp/TSB-AD-M.zip -d Datasets/ && \
+      unzip -q /tmp/TSB-AD-M.zip -d "$STORAGE_ROOT/datasets/" && \
       rm /tmp/TSB-AD-M.zip && \
-      echo "[setup] TSB-AD-M extracted to Datasets/TSB-AD-M/" || \
-      echo "[setup] WARNING: TSB-AD-M download failed. Download manually and extract to Datasets/TSB-AD-M/"
+      echo "[setup] TSB-AD-M extracted to $STORAGE_ROOT/datasets/TSB-AD-M/" || \
+      echo "[setup] WARNING: TSB-AD-M download failed."
   else
-    echo "[setup] Datasets/TSB-AD-M/ already populated — skipping download."
+    echo "[setup] TSB-AD-M already present — skipping download."
   fi
+
+  # --- Symlink datasets into the repo so the code finds them ---
+  REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+  for ds in TSB-AD-U TSB-AD-M; do
+    SRC="$STORAGE_ROOT/datasets/$ds"
+    DST="$REPO_DIR/Datasets/$ds"
+    if [ -d "$SRC" ] && [ ! -e "$DST" ]; then
+      ln -s "$SRC" "$DST"
+      echo "[setup] Symlinked $DST -> $SRC"
+    elif [ -e "$DST" ] && [ ! -L "$DST" ]; then
+      echo "[setup] $DST already exists as a real directory — leaving it."
+    fi
+  done
+
 else
   echo "[setup] Skipping dataset download (--no-datasets)."
 fi
@@ -93,23 +129,25 @@ fi
 if [ "$DOWNLOAD_WEIGHTS" = true ]; then
   echo ""
   echo "[setup] === Pre-downloading foundation model weights ==="
-  echo "        Weights stored in /ptmp/\$USER/hf_cache (not home, avoids 10GB quota)"
+  echo "        Weights stored in $STORAGE_ROOT/hf_cache"
   echo "        This prevents timeouts when jobs run on nodes without internet."
 
-  # Mirror the same cache dirs used by the Slurm scripts
-  export HF_HOME=/ptmp/$USER/hf_cache
-  export TORCH_HOME=/ptmp/$USER/torch_cache
-  mkdir -p "$HF_HOME" "$TORCH_HOME"
+  export HF_HOME="$STORAGE_ROOT/hf_cache"
+  export TORCH_HOME="$STORAGE_ROOT/torch_cache"
 
-  python - <<'PYEOF'
-import sys
+  # Write the storage root path to a file the slurm scripts can source
+  echo "$STORAGE_ROOT" > "$(cd "$(dirname "$0")" && pwd)/.storage_root"
+  echo "[setup] Saved storage root to .storage_root"
+
+  python - <<PYEOF
+import os, sys
 
 models = [
-    ("MOMENT_FT / MOMENT_ZS", "AutonLab/MOMENT-1-large",       "momentfm",  "MOMENTPipeline"),
-    ("Chronos",                "amazon/chronos-t5-small",        "chronos",   "ChronosPipeline"),
-    ("Lag-Llama",              "time-series-foundation-models/Lag-Llama", "lag_llama", None),
-    ("TimesFM",                "google/timesfm-1.0-200m",        "timesfm",   None),
-    ("OFA / TimesNet",         None,                             None,        None),  # trained from scratch
+    ("MOMENT_FT / MOMENT_ZS", "AutonLab/MOMENT-1-large",                    "momentfm",  "MOMENTPipeline"),
+    ("TimesFM",                "google/timesfm-1.0-200m",                    "huggingface_hub", None),
+    ("Chronos",                "amazon/chronos-t5-small",                    "chronos",   "ChronosPipeline"),
+    ("Lag-Llama",              "time-series-foundation-models/Lag-Llama",    "huggingface_hub", None),
+    ("OFA / TimesNet / USAD",  None,                                         None,        None),
 ]
 
 for name, model_id, pkg, cls in models:
@@ -119,24 +157,20 @@ for name, model_id, pkg, cls in models:
     try:
         if pkg == "momentfm":
             from momentfm import MOMENTPipeline
-            MOMENTPipeline.from_pretrained(model_id, task="anomaly_detection", cache_dir=None)
+            MOMENTPipeline.from_pretrained(model_id, task="anomaly_detection")
             print(f"  [OK] {name} weights cached")
         elif pkg == "chronos":
             from chronos import ChronosPipeline
             ChronosPipeline.from_pretrained(model_id, device_map="cpu")
             print(f"  [OK] {name} weights cached")
         else:
-            # Try generic HuggingFace snapshot_download as fallback
             from huggingface_hub import snapshot_download
             snapshot_download(repo_id=model_id)
-            print(f"  [OK] {name} weights cached via snapshot_download")
+            print(f"  [OK] {name} weights cached")
     except ImportError:
-        print(f"  [SKIP] {name}: package '{pkg}' not installed (installed via TSB-AD at runtime)")
+        print(f"  [SKIP] {name}: package '{pkg}' not installed yet — will download on first job run")
     except Exception as e:
         print(f"  [WARN] {name}: {e}")
-        print(f"         Weights may be downloaded automatically on first job run.")
-
-print("Done with model weight pre-fetch.")
 PYEOF
 
 else
@@ -160,8 +194,8 @@ if [ "$BUILD_SZ3" = true ]; then
     cmake --install "$SZ3_DIR/build" 2>&1 | tail -5
     echo "[setup] SZ3 built → $SZ3_DIR/install/lib/"
   else
-    echo "[setup] external/SZ3 not found — skipping SZ3 build."
-    echo "        Clone it with: git clone https://github.com/szcompressor/SZ3 external/SZ3"
+    echo "[setup] external/SZ3 not found — skipping."
+    echo "        Clone with: git clone https://github.com/szcompressor/SZ3 external/SZ3"
   fi
 else
   echo "[setup] Skipping SZ3 build (--no-sz3)."
@@ -185,19 +219,14 @@ if [ "$BUILD_SERF" = true ]; then
   if [ "$BUILD_SERF" = true ] && [ -d "$SERF_DIR" ]; then
     echo "[setup] Building SERF python wrapper..."
     mkdir -p "$SERF_DIR/build"
-    cmake -S "$SERF_DIR" -B "$SERF_DIR/build" \
-          -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -5
+    cmake -S "$SERF_DIR" -B "$SERF_DIR/build" -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -5
     cmake --build "$SERF_DIR/build" --parallel "$(nproc)" 2>&1 | tail -5
-
     PYWRAPPER=$(find "$SERF_DIR/build" -name "pyserf*.so" -o -name "pyserf*.pyd" 2>/dev/null | head -1)
     if [ -n "$PYWRAPPER" ]; then
-      PYWRAPPER_DIR=$(dirname "$PYWRAPPER")
-      echo "[setup] SERF pyserf extension found at: $PYWRAPPER_DIR"
-      echo "        Add to your shell profile:"
-      echo "        export SERF_PYWRAPPER_PATH=$(pwd)/$PYWRAPPER_DIR"
+      echo "[setup] SERF built at: $(dirname "$PYWRAPPER")"
+      echo "        export SERF_PYWRAPPER_PATH=$(pwd)/$(dirname "$PYWRAPPER")"
     else
-      echo "[setup] WARNING: Could not locate pyserf shared library after build."
-      echo "        Check $SERF_DIR/build/ manually."
+      echo "[setup] WARNING: pyserf shared library not found after build."
     fi
   fi
 else
@@ -210,7 +239,10 @@ fi
 echo ""
 echo "=== Setup complete ==="
 echo ""
+echo "  Storage root: $STORAGE_ROOT"
+echo "  Datasets:     $STORAGE_ROOT/datasets/"
+echo "  HF cache:     $STORAGE_ROOT/hf_cache/"
+echo ""
 echo "Next steps:"
-echo "  1. Update slurm/*.sh with your ISU email address"
-echo "  2. Run the smoke test:  python main.py experiment --dataset-list Datasets/File_List/TSB-AD-U-Smoke.csv --detectors IForest"
-echo "  3. Submit all jobs:     bash slurm/submit.sh"
+echo "  1. Smoke test:   python main.py experiment --dataset-list Datasets/File_List/TSB-AD-U-Smoke.csv --detectors IForest"
+echo "  2. Submit jobs:  bash slurm/submit.sh"

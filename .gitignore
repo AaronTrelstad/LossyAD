@@ -15,4 +15,4 @@ TSB_AD/models/Series2Graph.py
 file_summary.md
 /cr_bound_maps
 run.sbatch
-/logs
+/logs.storage_root

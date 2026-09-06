@@ -33,10 +33,11 @@ cd $SLURM_SUBMIT_DIR
 
 export CUDA_VISIBLE_DEVICES=0
 
-# Redirect HuggingFace and Torch caches to ptmp to avoid filling the 10GB home quota
-export HF_HOME=/ptmp/$USER/hf_cache
-export TORCH_HOME=/ptmp/$USER/torch_cache
-mkdir -p $HF_HOME $TORCH_HOME
+# Redirect HuggingFace and Torch caches to HPC storage (set by setup.sh)
+STORAGE_ROOT=$(cat "$SLURM_SUBMIT_DIR/.storage_root" 2>/dev/null || echo "/work/classtmp/$USER/lossyad")
+export HF_HOME="$STORAGE_ROOT/hf_cache"
+export TORCH_HOME="$STORAGE_ROOT/torch_cache"
+mkdir -p "$HF_HOME" "$TORCH_HOME"
 
 echo "=== Detector: $DETECTOR (Foundation Model, FM subset) ==="
 echo "Node: $SLURMD_NODENAME"
