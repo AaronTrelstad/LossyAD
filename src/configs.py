@@ -1,50 +1,267 @@
+"""
+configs.py — central configuration for the LossyAD benchmark.
+"""
+
+import os
 import random
+
 import numpy as np
 import torch
-
-from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict
 from enum import Enum
-from .compression_methods import SZ3Compressor, PIPCompressor, DWTCompressor, PySerfCompressor, MixPieceCompressor, NoneCompressor
 
-def set_seed(seed):
+from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict, Optimal_Multi_algo_HP_dict
+
+from .compression_methods import get_available_compressors
+
+
+# ---------------------------------------------------------------------------
+# Reproducibility
+# ---------------------------------------------------------------------------
+
+def set_seed(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.benchmark     = False
     torch.backends.cudnn.deterministic = True
 
-    print("CUDA Available: ", torch.cuda.is_available())
-    print("cuDNN Version: ", torch.backends.cudnn.version())
+    if torch.cuda.is_available():
+        n_gpus = torch.cuda.device_count()
+        names  = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
+        print(f"CUDA: {n_gpus} GPU(s) available — {names}")
+        print(f"      Active device: cuda:{torch.cuda.current_device()}")
+        # TSB-AD deep-learning detectors (CNN, LSTMAD, USAD, MOMENT) detect CUDA
+        # internally and move models to GPU automatically.
+        # To pin a specific GPU:  CUDA_VISIBLE_DEVICES=0 python main.py
+    else:
+        print("CUDA: not available — running on CPU")
+        print("      GPU is required for CNN / LSTMAD / USAD / MOMENT detectors.")
+    print(f"cuDNN: {torch.backends.cudnn.version()}")
 
-class MethodType(Enum):
-    #NONE = NoneCompressor
-    # SZ3 = SZ3Compressor
-    #PIP = PIPCompressor
-    # DWT = DWTCompressor
-    SERF = PySerfCompressor
-    #MP = MixPieceCompressor # Need to validate this
+
+# ---------------------------------------------------------------------------
+# MethodType — dynamically built from available compressors
+# ---------------------------------------------------------------------------
+
+_available = get_available_compressors()
+
+# Build the enum members: name → compressor class
+MethodType = Enum("MethodType", {name: cls for name, cls in _available.items()})
+"""
+Enum of all compressor methods whose native dependencies are satisfied.
+Members are added/removed automatically — no code change needed when
+installing or removing an optional compressor's native library.
+"""
+
+
+# ---------------------------------------------------------------------------
+# AD method registry — Univariate (TSB-AD-U)
+# ---------------------------------------------------------------------------
+# Representative selection spanning the major algorithmic families in the
+# time-series anomaly detection literature.  All methods are sourced from
+# TSB-AD (Paparrizos et al., PVLDB 2022 / 2024).
+#
+# Family                  | Principle                                 | Methods
+# ----------------------- | ----------------------------------------- | -------
+# Subspace / distance     | Anomalies are distant in projected space   | Sub_PCA, Sub_KNN, Sub_LOF
+# Density                 | Low-density regions are anomalous          | LOF
+# Ensemble / tree         | Anomalies are isolated quickly             | IForest, Sub_IForest
+# Shape / pattern         | Anomalies deviate from recurring patterns  | KShapeAD, MatrixProfile, NORMA
+# Frequency / spectral    | Anomalies cause spectral residuals         | SR, FFT
+# Deep reconstruction     | High reconstruction error = anomaly        | CNN, USAD
+# Deep prediction         | High prediction error = anomaly            | LSTMAD, OmniAnomaly, TranAD
+# Transformer             | Attention-based reconstruction             | AnomalyTransformer
+# Foundation model        | Pre-trained on large TS corpora            | MOMENT_FT, MOMENT_ZS, TimesNet
+
+_DESIRED_UNI_AD_METHODS = [
+    # ── Shape / pattern ──────────────────────────────────────────────────────
+    # Leaderboard rank: KShapeAD 1st (0.40), Series2Graph 4th (0.39), MatrixProfile 6th
+    "KShapeAD",      # k-Shape clustering + shape-based distance (Paparrizos & Gravano, SIGMOD 2015)
+    "Series2Graph",  # Graph of transition probabilities between discretised values (Boniol et al., PVLDB 2020)
+    "MatrixProfile", # Nearest-neighbour distance in subsequence space (Yeh et al., ICDM 2016)
+    "NORMA",         # Normal pattern extraction via matrix profile (Boniol et al., SIGMOD 2021)
+    "SAND",          # Streaming anomaly detection via normal pattern update (Boniol et al., PVLDB 2021)
+    "Left_STAMPi",   # Streaming matrix profile (left-side) for online anomaly detection
+    "KMeansAD_U",    # k-Means clustering; distance to nearest centroid (univariate variant)
+    # ── Statistical / frequency ──────────────────────────────────────────────
+    # Leaderboard rank: POLY 4th (0.39), SR 8th
+    "POLY",          # Polynomial fitting residual — simple parametric baseline
+    "SR",            # Spectral Residual — Fourier magnitude residual (Ren et al., KDD 2019)
+    "FFT",           # FFT reconstruction error
+    "FITS",          # Frequency Interpolation TS (Zhou et al., ICLR 2024)
+    # ── Subspace / distance ──────────────────────────────────────────────────
+    "Sub_PCA",       # PCA on subsequences; distance to subspace
+    "Sub_KNN",       # KNN on subsequences; distance to k-th neighbour
+    "Sub_LOF",       # LOF on subsequences; local density ratio
+    "Sub_IForest",   # IForest on subsequences (leaderboard rank: 12th)
+    "Sub_HBOS",      # Histogram-Based Outlier Score on subsequences
+    "Sub_MCD",       # Minimum Covariance Determinant on subsequences
+    "Sub_OCSVM",     # One-Class SVM on subsequences
+    # ── Density ──────────────────────────────────────────────────────────────
+    "LOF",           # Local Outlier Factor (Breunig et al., SIGMOD 2000)
+    # ── Ensemble / tree ──────────────────────────────────────────────────────
+    "IForest",       # Isolation Forest (Liu et al., ICDM 2008)
+    # ── Deep reconstruction ───────────────────────────────────────────────────
+    "CNN",           # 1-D CNN autoencoder
+    "AutoEncoder",   # Fully-connected autoencoder (reconstruction error)
+    "USAD",          # Adversarial encoder-decoder (Audibert et al., KDD 2020)
+    "Donut",         # VAE with Donut latent space (Xu et al., WWW 2018)
+    # ── Deep prediction / VAE ─────────────────────────────────────────────────
+    "LSTMAD",        # LSTM prediction error (Malhotra et al., ESANN 2015)
+    "OmniAnomaly",   # Stochastic LSTM-VAE (Su et al., KDD 2019)
+    "TranAD",        # Transformer reconstruction + prediction (Tuli et al., VLDB 2022)
+    # ── Transformer ───────────────────────────────────────────────────────────
+    "AnomalyTransformer",  # Anomaly-attention mechanism (Xu et al., ICLR 2022)
+    # ── Foundation / pre-trained ──────────────────────────────────────────────
+    # Leaderboard rank: MOMENT_FT 2nd (0.39), MOMENT_ZS 5th (0.38), TimesFM 9th, Chronos 10th, Lag_Llama 11th
+    "MOMENT_FT",     # MOMENT — fine-tuned (Goswami et al., ICML 2024)
+    "MOMENT_ZS",     # MOMENT — zero-shot
+    "TimesNet",      # 2-D temporal variation (Wu et al., ICLR 2023)
+    "TimesFM",       # TimesFM — Google foundation model for TS
+    "Chronos",       # Chronos — Amazon pre-trained TS model (Ansari et al., 2024)
+    "Lag_Llama",     # Lag-Llama — LLaMA adapted for TS forecasting
+    "OFA",           # One-Fits-All — GPT-2 adapted for TS (Zhou et al., NeurIPS 2023)
+]
+
+# ---------------------------------------------------------------------------
+# AD method registry — Multivariate (TSB-AD-M)
+# ---------------------------------------------------------------------------
+# Family                  | Principle                                  | Methods
+# ----------------------- | ------------------------------------------ | -------
+# Subspace / linear       | PCA / robust PCA of feature matrix         | PCA, RobustPCA
+# Density                 | Low-density neighbours are anomalous       | LOF, KNN
+# Ensemble / tree         | Isolation depth                            | IForest
+# Shape / pattern         | Shape-based clustering                     | KShapeAD
+# Deep reconstruction     | High reconstruction error                  | CNN, USAD
+# Deep prediction / VAE   | Prediction / stochastic model error        | LSTMAD, OmniAnomaly, TranAD
+# Transformer             | Attention-based reconstruction             | AnomalyTransformer
+# Foundation model        | Pre-trained on large TS corpora            | TimesNet, OFA
+
+_DESIRED_MULTI_AD_METHODS = [
+    # ── Subspace / linear ────────────────────────────────────────────────────
+    "PCA",                # Standard PCA reconstruction error
+    "RobustPCA",          # Robust PCA via RPCA (Candès et al., JACM 2011)
+    # ── Density / proximity ──────────────────────────────────────────────────
+    "LOF",                # Local Outlier Factor (Breunig et al., SIGMOD 2000)
+    "KNN",                # k-Nearest Neighbour distance
+    "MCD",                # Minimum Covariance Determinant
+    "OCSVM",              # One-Class SVM
+    # ── Statistical / histogram ──────────────────────────────────────────────
+    "HBOS",               # Histogram-Based Outlier Score (Goldstein & Dengel, 2012)
+    "CBLOF",              # Cluster-Based Local Outlier Factor
+    "COPOD",              # Copula-Based Outlier Detection (Li et al., ICDM 2020)
+    # ── Ensemble / tree ──────────────────────────────────────────────────────
+    "IForest",            # Isolation Forest (Liu et al., ICDM 2008)
+    "EIF",                # Extended Isolation Forest (Hariri et al., TKDE 2019)
+    # ── Shape / pattern ──────────────────────────────────────────────────────
+    "KShapeAD",           # k-Shape on multivariate subsequences
+    "KMeansAD",           # k-Means clustering; distance to nearest centroid
+    # ── Deep reconstruction ───────────────────────────────────────────────────
+    "CNN",                # 1-D CNN autoencoder per channel
+    "AutoEncoder",        # Fully-connected autoencoder
+    "USAD",               # Adversarial encoder-decoder (Audibert et al., KDD 2020)
+    "Donut",              # VAE with Donut latent space (Xu et al., WWW 2018)
+    "FITS",               # Frequency Interpolation TS (Zhou et al., ICLR 2024)
+    # ── Deep prediction / VAE ─────────────────────────────────────────────────
+    "LSTMAD",             # LSTM prediction error (Malhotra et al., ESANN 2015)
+    "OmniAnomaly",        # Stochastic LSTM-VAE (Su et al., KDD 2019) — multivariate-native
+    "TranAD",             # Transformer reconstruction + prediction (Tuli et al., VLDB 2022)
+    # ── Transformer ───────────────────────────────────────────────────────────
+    "AnomalyTransformer", # Anomaly-attention mechanism (Xu et al., ICLR 2022)
+    # ── Foundation models ─────────────────────────────────────────────────────
+    "TimesNet",           # 2-D temporal variation (Wu et al., ICLR 2023)
+    "OFA",                # One-Fits-All — GPT-2 adapted for TS (Zhou et al., NeurIPS 2023)
+]
+
+# Filter to methods actually installed in the current TSB-AD version
+AVAILABLE_UNI_AD_METHODS: list[str] = [
+    m for m in _DESIRED_UNI_AD_METHODS if m in Optimal_Uni_algo_HP_dict
+]
+AVAILABLE_MULTI_AD_METHODS: list[str] = [
+    m for m in _DESIRED_MULTI_AD_METHODS if m in Optimal_Multi_algo_HP_dict
+]
+
+# Backwards-compatible alias (used by experiment.py before multivariate flag)
+AVAILABLE_AD_METHODS = AVAILABLE_UNI_AD_METHODS
+
+_missing_uni   = set(_DESIRED_UNI_AD_METHODS)   - set(AVAILABLE_UNI_AD_METHODS)
+_missing_multi = set(_DESIRED_MULTI_AD_METHODS) - set(AVAILABLE_MULTI_AD_METHODS)
+if _missing_uni:
+    print(f"[configs] Univariate   detectors not in TSB-AD (skipped): {sorted(_missing_uni)}")
+if _missing_multi:
+    print(f"[configs] Multivariate detectors not in TSB-AD (skipped): {sorted(_missing_multi)}")
+
+
+# ---------------------------------------------------------------------------
+# Experiment configuration
+# ---------------------------------------------------------------------------
 
 class ExperimentConfig:
-    def __init__(self):
-        self.seed = 2024
+    """
+    Central configuration for the experiment pipeline.
 
-        self.results_dir = 'results/'
-        self.cr_map_dir = 'cr_bound_maps/'
-        self.dataset_dir = 'Datasets/TSB-AD-U'
+    Parameters
+    ----------
+    multivariate : bool
+        If True, use the TSB-AD-M (multivariate) dataset and file list.
+        If False (default), use TSB-AD-U (univariate).
 
-        self.dataset_list = 'Datasets/File_List/TSB-AD-U-Test.csv'
+    All compressors handle multivariate data by compressing each channel
+    independently and packing the results into a single byte string.
 
+    Environment variables
+    ---------------------
+    LOSSYAD_WORKERS : int
+        Parallelism for the detector loop.  Defaults to 1.  Set higher on
+        multi-GPU nodes (one worker per GPU is typical).
+    """
+
+    def __init__(self, multivariate: bool = False):
+        self.seed         = 2024
+        self.multivariate = multivariate
+
+        self.results_dir = "results/"
+        self.cr_map_dir  = "cr_bound_maps/"
+
+        if multivariate:
+            self.dataset_dir  = "Datasets/TSB-AD-M"
+            self.dataset_list = "Datasets/File_List/TSB-AD-M-Eva.csv"
+        else:
+            self.dataset_dir  = "Datasets/TSB-AD-U"
+            self.dataset_list = "Datasets/File_List/TSB-AD-U-Eva.csv"
+
+        # Target compression ratios to sweep
         self.compression_ratios = [1, 3, 5, 7, 10, 15, 20, 30, 40, 50]
-        self.error_bounds = np.linspace(0, 0.8, 100)
 
-        # for all AD methods use: list(Optimal_Uni_algo_HP_dict.keys())
-        self.ad_methods = ['Sub_PCA', 'KShapeAD', 'POLY', 'Sub_KNN', 'SR', 'CNN', 'LSTMAD', 'USAD'] # 'MOMENT_FT', 'MOMENT_ZS'
+        # Error-bound grid for CR→bound calibration.
+        # Range extended to 0.99 so DWT / QUANT can reach very high CRs.
+        self.error_bounds = np.linspace(0, 0.99, 200)
 
+        # AD methods — pick the right list for uni vs multivariate
+        if multivariate:
+            self.ad_methods = list(AVAILABLE_MULTI_AD_METHODS)
+        else:
+            self.ad_methods = list(AVAILABLE_UNI_AD_METHODS)
+
+        # Compressors — all available by default; override via CLI.
+        self.compressors = list(MethodType)
+
+        # Worker count for the detector parallel loop.
+        self.n_workers = int(os.environ.get("LOSSYAD_WORKERS", 1))
+
+        # Save original-vs-decompressed waveform plots (slow, off by default)
         self.chart = False
 
-class AnalysisConfig:
-    def __init__(self):
-        self.results_dir = 'results/'
-        self.ad_methods = ['Sub_PCA', 'KShapeAD', 'POLY', 'Sub_KNN', 'SR', 'CNN', 'LSTMAD', 'USAD', 'MOMENT_FT', 'MOMENT_ZS']
 
+# ---------------------------------------------------------------------------
+# Analysis configuration
+# ---------------------------------------------------------------------------
+
+class AnalysisConfig:
+    """Configuration for the analysis / plotting pipeline."""
+
+    def __init__(self, multivariate: bool = False):
+        self.multivariate = multivariate
+        self.results_dir  = "results/"
+        self.ad_methods   = list(AVAILABLE_AD_METHODS)

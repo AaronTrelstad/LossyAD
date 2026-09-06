@@ -1,6 +1,26 @@
-torch
-pandas 
-numpy
-matplotlib
-scikit-learn
+# Core scientific stack
+statsmodels>=0.14      # required by TSB-AD (slidingWindows)
+numpy>=1.24
+pandas>=2.0
+scipy>=1.11
+scikit-learn>=1.3
+
+# Deep learning
+torch>=2.0
+
+# Compression
+PyWavelets>=1.4       # DWT compressor
+zstandard>=0.21       # zstd wrapper used for CR measurement
+zfpy>=1.0.0           # ZFP error-bounded compressor
+
+# Anomaly detection framework
 TSB-AD
+
+# Visualisation
+matplotlib>=3.7
+seaborn>=0.13         # optional — improves heatmap aesthetics
+
+# ---- Optional (require native builds, see setup.sh) ----
+# SZ3   : build from external/SZ3  (cmake)
+# SERF  : build from external/Serf (cmake)
+# TerseTS (MixPiece): pip install git+https://github.com/cmcuza/TerseTS.git
