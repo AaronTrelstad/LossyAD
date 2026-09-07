@@ -781,7 +781,7 @@ class SZ3Compressor:
                     ) from exc
                 cfg = szConfig()
                 cfg.errorBoundMode = szErrorBoundMode.ABS
-                cfg.absErrBound    = error_bound
+                cfg.absErrorBound  = error_bound
                 cls._sz_cache[cache_key] = ("new", _sz_cls(lib, cfg))
         api, inst = cls._sz_cache[cache_key]
         return api, inst
