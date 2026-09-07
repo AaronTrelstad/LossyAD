@@ -734,13 +734,17 @@ class SZ3Compressor:
         if pysz_path not in sys.path:
             sys.path.insert(0, pysz_path)
         try:
-            from pysz import SZ
+            from pysz import sz as SZ  # pysz >= 1.0 uses lowercase 'sz'
             self._SZ_cls = SZ
-        except ImportError as exc:
-            raise RuntimeError(
-                "pysz not found.  Build SZ3 and ensure external/SZ3/tools/pysz is accessible.\n"
-                "See external/SZ3/README.md for build instructions."
-            ) from exc
+        except ImportError:
+            try:
+                from pysz import SZ     # older pysz versions used uppercase 'SZ'
+                self._SZ_cls = SZ
+            except ImportError as exc:
+                raise RuntimeError(
+                    "pysz not found.  Install with: pip install external/SZ3/tools/pysz/\n"
+                    "See external/SZ3/README.md for build instructions."
+                ) from exc
 
         lib = _sz3_lib_path()
         if not os.path.exists(lib):
@@ -751,7 +755,7 @@ class SZ3Compressor:
 
         with self._sz_lock:
             if lib not in self._sz_cache:
-                self._sz_cache[lib] = SZ(lib)
+                self._sz_cache[lib] = self._SZ_cls(lib)
         self.sz          = self._sz_cache[lib]
         self.error_bound = float(error_bound)
 
