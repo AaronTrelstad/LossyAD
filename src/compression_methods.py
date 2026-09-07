@@ -730,21 +730,20 @@ class SZ3Compressor:
     _sz_lock = __import__("threading").Lock()
 
     def __init__(self, error_bound: float = 1e-3):
-        pysz_path = os.path.join(os.path.dirname(__file__), "..", "external", "SZ3", "tools", "pysz")
-        if pysz_path not in sys.path:
-            sys.path.insert(0, pysz_path)
-        try:
-            from pysz import sz as SZ  # pysz >= 1.0 uses lowercase 'sz'
-            self._SZ_cls = SZ
-        except ImportError:
-            try:
-                from pysz import SZ     # older pysz versions used uppercase 'SZ'
-                self._SZ_cls = SZ
-            except ImportError as exc:
-                raise RuntimeError(
-                    "pysz not found.  Install with: pip install external/SZ3/tools/pysz/\n"
-                    "See external/SZ3/README.md for build instructions."
-                ) from exc
+        import importlib.util as _ilu
+        # Load the local ctypes wrapper directly — bypasses any pip-installed pysz
+        # package whose API may differ (e.g. pysz >= 1.0 changed compress() signature).
+        _local = os.path.join(os.path.dirname(__file__), "..", "external", "SZ3", "tools", "pysz", "pysz.py")
+        _local = os.path.abspath(_local)
+        if not os.path.exists(_local):
+            raise RuntimeError(
+                f"Local pysz.py not found at {_local}.\n"
+                "Ensure the SZ3 submodule is checked out: git submodule update --init external/SZ3"
+            )
+        spec = _ilu.spec_from_file_location("_local_pysz", _local)
+        _mod  = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(_mod)
+        self._SZ_cls = _mod.SZ   # class SZ in pysz.py has compress(data, eb_mode, eb_abs, eb_rel, eb_pwr)
 
         lib = _sz3_lib_path()
         if not os.path.exists(lib):
@@ -760,6 +759,7 @@ class SZ3Compressor:
         self.error_bound = float(error_bound)
 
     def compress(self, data: np.ndarray):
+        # eb_mode=0 → ABS, eb_abs=self.error_bound, eb_rel/eb_pwr unused
         data_cmpr, _ = self.sz.compress(data, 0, self.error_bound, 0, 0)
         return data_cmpr
 
