@@ -258,7 +258,7 @@ _REDUCED_MULTI_AD_METHODS = [
 # Scalar quantization         | QUANT      | Simple uniform quantization
 # Point selection             | PIP        | Perceptually important points
 # Encoding                    | GORILLA    | Streaming float compression (Facebook)
-REDUCED_COMPRESSOR_NAMES: list[str] = ["NONE", "SZ3", "ZFP", "DWT", "QUANT", "PIP", "GORILLA"]
+REDUCED_COMPRESSOR_NAMES: list[str] = ["NONE", "SZ3", "ZFP", "DWT", "QUANT", "GORILLA"]
 
 REDUCED_UNI_AD_METHODS: list[str] = [
     m for m in _REDUCED_UNI_AD_METHODS if m in Optimal_Uni_algo_HP_dict
