@@ -12,8 +12,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=12
 #SBATCH --time=0-4:0:0
-#SBATCH --partition=nova
-#SBATCH --qos=instruction
+#SBATCH --partition=instruction
 #SBATCH --account=f2026.coms.5790.01
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=trelstad@iastate.edu
