@@ -15,6 +15,8 @@
 #SBATCH --time=2-0:0:0
 #SBATCH --partition=nova
 #SBATCH --gres=gpu:1
+#SBATCH --qos=instruction
+#SBATCH --account=f2026.coms.5790.01
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=trelstad@iastate.edu
 
