@@ -768,35 +768,48 @@ class SZ3Compressor:
             return api, inst
 
         # ── Fall back to pip-installed pysz (>= 1.0 compiled extension) ────────
-        # In the new API the error bound is per-instance, so cache by (lib, eb).
-        cache_key = (lib, error_bound)
+        # New API: sz(lib) cached per lib; szConfig passed per compress() call.
         with cls._sz_lock:
-            if cache_key not in cls._sz_cache:
+            if lib not in cls._sz_cache:
                 try:
-                    from pysz import sz as _sz_cls, szConfig, szErrorBoundMode
+                    from pysz import sz as _sz_cls
                 except ImportError as exc:
                     raise RuntimeError(
                         "pysz not found.  Install with: pip install external/SZ3/tools/pysz/\n"
                         "See external/SZ3/README.md for build instructions."
                     ) from exc
-                cfg = szConfig()
-                cfg.errorBoundMode = szErrorBoundMode.ABS
-                cfg.absErrorBound  = error_bound
-                cls._sz_cache[cache_key] = ("new", _sz_cls(lib, cfg))
-        api, inst = cls._sz_cache[cache_key]
+                cls._sz_cache[lib] = ("new", _sz_cls(lib))
+        api, inst = cls._sz_cache[lib]
         return api, inst
+
+    def _make_config(self, data: np.ndarray):
+        """Build a szConfig for the given data array (new pysz API)."""
+        from pysz import szConfig, szErrorBoundMode
+        cfg = szConfig()
+        cfg.errorBoundMode = szErrorBoundMode.ABS
+        cfg.absErrorBound  = self.error_bound
+        cfg.setDims(list(data.shape))
+        return cfg
 
     def compress(self, data: np.ndarray):
         if self._api == "old":
             # eb_mode=0 → ABS, eb_abs=self.error_bound, eb_rel/eb_pwr unused
             data_cmpr, _ = self.sz.compress(data, 0, self.error_bound, 0, 0)
         else:
-            # new pysz: error bound baked in at construction
-            data_cmpr, _ = self.sz.compress(data)
+            # new pysz: config (with dims + error bound) passed per call
+            data_cmpr, _ = self.sz.compress(data, self._make_config(data))
         return data_cmpr
 
     def decompress(self, data_cmpr, original_shape, original_dtype):
-        return self.sz.decompress(data_cmpr, original_shape, original_dtype)
+        if self._api == "old":
+            return self.sz.decompress(data_cmpr, original_shape, original_dtype)
+        else:
+            from pysz import szConfig, szErrorBoundMode
+            cfg = szConfig()
+            cfg.errorBoundMode = szErrorBoundMode.ABS
+            cfg.absErrorBound  = self.error_bound
+            cfg.setDims(list(original_shape))
+            return self.sz.decompress(data_cmpr, cfg)
 
 
 # ---------------------------------------------------------------------------
