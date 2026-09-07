@@ -952,9 +952,11 @@ def _probe(cls, name: str) -> bool:
     try:
         cls(error_bound=1e-3)
         return True
-    except RuntimeError:
+    except RuntimeError as e:
+        print(f"[compression] {name} unavailable — skipping ({e})")
         return False
-    except Exception:
+    except Exception as e:
+        print(f"[compression] {name} unavailable — skipping ({type(e).__name__}: {e})")
         return False
 
 
