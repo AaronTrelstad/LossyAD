@@ -299,12 +299,37 @@ class ExperimentConfig:
         multi-GPU nodes (one worker per GPU is typical).
     """
 
+    @staticmethod
+    def _storage_root() -> str | None:
+        """
+        Return the storage root for large output files, or None to use repo-relative paths.
+
+        Priority:
+          1. LOSSYAD_STORAGE_ROOT environment variable
+          2. .storage_root file in the repo root (written by setup.sh)
+        """
+        env = os.environ.get("LOSSYAD_STORAGE_ROOT")
+        if env:
+            return env
+        dot = os.path.join(os.path.dirname(__file__), "..", ".storage_root")
+        dot = os.path.abspath(dot)
+        if os.path.exists(dot):
+            with open(dot) as f:
+                val = f.read().strip()
+            if val:
+                return val
+        return None
+
     def __init__(self, multivariate: bool = False):
         self.seed         = 2024
         self.multivariate = multivariate
 
-        self.results_dir = "results/"
-        self.cr_map_dir  = "cr_bound_maps/"
+        # Results and bound-map directories.
+        # On HPC: set LOSSYAD_STORAGE_ROOT (or write path to .storage_root) to
+        # redirect output to /work/classtmp or similar large-storage location.
+        _storage = self._storage_root()
+        self.results_dir = os.path.join(_storage, "results") if _storage else "results"
+        self.cr_map_dir  = os.path.join(_storage, "cr_bound_maps") if _storage else "cr_bound_maps"
 
         if multivariate:
             self.dataset_dir  = "Datasets/TSB-AD-M"
