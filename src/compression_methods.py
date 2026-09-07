@@ -701,16 +701,19 @@ class VisvalingamWhyattCompressor(_TerseTSCompressor):
 # ---------------------------------------------------------------------------
 
 def _sz3_lib_path() -> str:
-    base = os.path.join(os.path.dirname(__file__), "..", "external", "SZ3", "install", "lib")
-    env  = os.environ.get("SZ3_LIB_PATH")
+    env = os.environ.get("SZ3_LIB_PATH")
     if env:
         return env
     suffix = ".dylib" if platform.system() == "Darwin" else ".so"
-    for name in [f"libSZ3c{suffix}", "libSZ3c.so.3", "libSZ3c.so"]:
-        full = os.path.join(base, name)
-        if os.path.exists(full):
-            return full
-    return os.path.join(base, f"libSZ3c{suffix}")
+    install = os.path.join(os.path.dirname(__file__), "..", "external", "SZ3", "install")
+    # cmake may install to lib/ or lib64/ depending on the platform/distro
+    for lib_dir in ["lib", "lib64"]:
+        base = os.path.join(install, lib_dir)
+        for name in [f"libSZ3c{suffix}", "libSZ3c.so.3", "libSZ3c.so"]:
+            full = os.path.join(base, name)
+            if os.path.exists(full):
+                return full
+    return os.path.join(install, "lib", f"libSZ3c{suffix}")
 
 
 class SZ3Compressor:

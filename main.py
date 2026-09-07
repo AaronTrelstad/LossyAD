@@ -173,18 +173,21 @@ def main():
     if args.mode in ("all", "bounds"):
         print("\n[main] === Building CR → bound maps ===")
         force_bounds = getattr(args, "force_bounds", False)
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        with ThreadPoolExecutor(max_workers=min(6, len(cfg.compressors))) as pool:
-            futures = {
-                pool.submit(create_bound_map, c, cfg, force_bounds): c
-                for c in cfg.compressors
-            }
-            for f in as_completed(futures):
-                c = futures[f]
-                try:
-                    f.result()
-                except Exception as exc:
-                    print(f"[main] Bound map failed for {c.name}: {exc}")
+        if not cfg.compressors:
+            print("[main] No available compressors — skipping bound map step.")
+        else:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=min(6, len(cfg.compressors))) as pool:
+                futures = {
+                    pool.submit(create_bound_map, c, cfg, force_bounds): c
+                    for c in cfg.compressors
+                }
+                for f in as_completed(futures):
+                    c = futures[f]
+                    try:
+                        f.result()
+                    except Exception as exc:
+                        print(f"[main] Bound map failed for {c.name}: {exc}")
 
     if args.mode in ("all", "experiment"):
         print("\n[main] === Running experiments ===")
